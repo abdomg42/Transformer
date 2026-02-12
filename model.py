@@ -57,7 +57,7 @@ class MultiHeadAttentionBlock(nn.Module):
     def __init___(self, d_model: int, h: int , dropout:float) -> None:
         super().__init__()
         self.d_model = d_model
-        self.h = h 
+        self.h = h #  head 
         assert d_model % h == 0, "d_model is not devised by h "
         self.d_k = d_model // h
         self.w_q = nn.Linear(d_model, d_model) #wq
@@ -71,7 +71,7 @@ class MultiHeadAttentionBlock(nn.Module):
     def attention(query, key, value, mask, dropout: nn.Dropout):
         d_k = query.shape[-1]
 
-        attention_scores = (query @ key.transpos(-2, -1) / math.sqrt(d_k))
+        attention_scores = (query @ key.transpose(-2, -1) / math.sqrt(d_k))
         if  mask is not None: 
             attention_scores.masked_fill(mask == 0 , -1e9)
         attention_scores = attention_scores.softmax(dim=-1)
@@ -101,4 +101,25 @@ class ResidualConnection(nn.Module):
         self.norm = LayerNormalization()
 
     def forward(self, x , sublayer):
-        return x * self.dropout(sublayer(self.norm(x)))
+        return x + self.dropout(sublayer(self.norm(x)))
+    
+class EncoderBlock(nn.Module): 
+    def __init__(self, self_attention_block: MultiHeadAttentionBlock , feed_forward_block: FeedForwardBlock , dropout: float) -> None: 
+        super().__init__()
+        self.self_attention_block = self_attention_block 
+        self.feed_forward_block = feed_forward_block 
+        self.residual_connections = nn.ModuleList([ResidualConnection(dropout) for _ in range(2)])
+    def forward(self, x, src_mask):
+        x = self.residual_connections[0](x, lambda x: self.self_attention_block(x, x, x, src_mask))
+        x = self.residual_connections[1](x, self.feed_forward_block)
+        return x 
+
+class Encoder(nn.Module):
+    def __init__(self, layers: nn.ModuleList) -> None:
+        super().__init__()
+        self.layers = layers
+        self.norm = LayerNormalization()
+    def forward(self, x, mask):
+        for layer in self.layers:
+            x = layer(x, mask)
+        return self.norm(x)
